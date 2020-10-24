@@ -3,10 +3,12 @@ package com.github.johnmcguinness.fp.monparse;
 import io.vavr.Tuple;
 import io.vavr.Tuple2;
 import io.vavr.collection.CharSeq;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @FunctionalInterface
 public interface Parser<A> { 
@@ -50,11 +52,10 @@ public interface Parser<A> {
 	}
 	
 	public default Parser<A> plus(Parser<A> p) {
-		return input -> {
-			final List<Tuple2<A, String>> ps = this.parse(input);
-			ps.addAll(p.parse(input));
-			return ps;
-		};
+		return input ->  
+				Stream
+					.concat(parse(input).stream(), p.parse(input).stream())
+                    .collect(Collectors.toList());
 	}
 	
 	public static Parser<Character> sat(Predicate<Character> p) {
@@ -86,14 +87,53 @@ public interface Parser<A> {
 	}
 	
 	public static Parser<String> word() {
+		return many(letter()).bind(chars -> result(CharSeq.ofAll(chars).mkString()));
+	}
+
+	public static <A> Parser<List<A>> many(Parser<A> p) {
 		
-		final Parser<String> neWord = 
-			letter().bind(x -> 
-				word().bind(xs -> 
-					result(x + xs)));
+		final Parser<List<A>> many = 
+			p.bind(x -> 
+				many(p).bind(xs -> {
+					return result(io.vavr.collection.List.ofAll(xs).insert(0, x).toJavaList());
+				})
+			);
 		
-		return neWord.plus(result(""));
+		return many.plus(result(new ArrayList<>()));
+	}
+
+	public static <A> Parser<List<A>> many1(Parser<A> p) {
+		
+		return
+			p.bind(x -> 
+				many(p).bind(xs -> {
+					return result(io.vavr.collection.List.ofAll(xs).insert(0, x).toJavaList());
+				})
+			);
+	}
+	
+	public static Parser<Integer> nat() {
+		return 
+			many1(digit())
+				.bind(digits -> result(Integer.parseInt(CharSeq.ofAll(digits).mkString())));
+	}
+	
+	public static Parser<Integer> integer() {
+		
+		final Function<Integer, Integer> negate 
+			= number -> -1 * number;
+		
+		final Parser<Function<Integer, Integer>> op 
+			= character('-')
+				.bind(ingored -> result(negate))
+				.plus(result(Function.identity()));
+		
+		return
+			op.bind(f -> 
+				nat().bind(n -> 
+					result(f.apply(n))));
 	}
 
 	public List<Tuple2<A, String>> parse(String input);
+	
 }
