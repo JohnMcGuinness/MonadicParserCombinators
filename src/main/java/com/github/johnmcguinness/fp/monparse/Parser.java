@@ -134,6 +134,49 @@ public interface Parser<A> {
 					result(f.apply(n))));
 	}
 
-	public List<Tuple2<A, String>> parse(String input);
+	public static Parser<List<Integer>> ints() {
+		
+		return character('[').bind(open ->
+					integer().bind(n -> 
+						many(character(',').bind(comma -> integer().bind(x -> result(x)))).bind(ns -> 
+							character(']').bind(close -> 
+								result(io.vavr.collection.List.of(n).appendAll(ns).toJavaList())))));
+	}
+
+	public default <B> Parser<List<A>> sepby1(Parser<B> sep) {
+
+		return this.bind(x ->
+					many(sep.bind(s ->
+						this.bind(y -> result(y)))).bind(xs ->
+							result(io.vavr.collection.List.of(x).appendAll(xs).toJavaList())));
+	}
+
+	public static Parser<List<Integer>> ints_() {
+		
+		return character('[').bind(open ->
+					integer().sepby1(character(',')).bind(ns ->
+							character(']').bind(close -> 
+								result(ns))));
+	}	
+
+	public static <A, B, C> Parser<B> brackets(Parser<A> open, Parser<B> p, Parser<C> close) {
+		
+		return open.bind(o ->
+					p.bind(x -> 
+						close.bind(c ->
+							result(x)
+						)
+					)
+				);
+	}
+
+	public static Parser<List<Integer>> ints__() {
+		return brackets(character('['), integer().sepby1(character(',')), character(']'));
+	}	
+
+	public default <B> Parser<List<A>> sepby(Parser<B> sep) {
+		return this.sepby1(sep).plus(result(List.of()));
+	}
 	
+	public List<Tuple2<A, String>> parse(String input);
 }
