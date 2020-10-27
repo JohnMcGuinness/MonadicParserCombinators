@@ -1,5 +1,6 @@
 package com.github.johnmcguinness.fp.monparse;
 
+import io.vavr.Lazy;
 import io.vavr.Tuple;
 import io.vavr.Tuple2;
 import io.vavr.collection.CharSeq;
@@ -7,8 +8,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @FunctionalInterface
 public interface Parser<A> { 
@@ -52,10 +53,15 @@ public interface Parser<A> {
 	}
 	
 	public default Parser<A> plus(Parser<A> p) {
-		return input ->  
-				Stream
-					.concat(parse(input).stream(), p.parse(input).stream())
-                    .collect(Collectors.toList());
+		return input ->  {
+			
+				final List<Tuple2<A, String>> first 
+					= parse(input);
+			
+				return !first.isEmpty()
+					? first
+					: p.parse(input);
+		};
 	}
 	
 	public static Parser<Character> sat(Predicate<Character> p) {
@@ -134,30 +140,17 @@ public interface Parser<A> {
 					result(f.apply(n))));
 	}
 
-	public static Parser<List<Integer>> ints() {
-		
-		return character('[').bind(open ->
-					integer().bind(n -> 
-						many(character(',').bind(comma -> integer().bind(x -> result(x)))).bind(ns -> 
-							character(']').bind(close -> 
-								result(io.vavr.collection.List.of(n).appendAll(ns).toJavaList())))));
-	}
-
 	public default <B> Parser<List<A>> sepby1(Parser<B> sep) {
 
 		return this.bind(x ->
-					many(sep.bind(s ->
+					many(sep.bind(separator ->
 						this.bind(y -> result(y)))).bind(xs ->
 							result(io.vavr.collection.List.of(x).appendAll(xs).toJavaList())));
 	}
 
-	public static Parser<List<Integer>> ints_() {
-		
-		return character('[').bind(open ->
-					integer().sepby1(character(',')).bind(ns ->
-							character(']').bind(close -> 
-								result(ns))));
-	}	
+	public default <B> Parser<List<A>> sepby(Parser<B> sep) {
+		return this.sepby1(sep).plus(result(List.of()));
+	}
 
 	public static <A, B, C> Parser<B> brackets(Parser<A> open, Parser<B> p, Parser<C> close) {
 		
@@ -170,13 +163,23 @@ public interface Parser<A> {
 				);
 	}
 
-	public static Parser<List<Integer>> ints__() {
-		return brackets(character('['), integer().sepby1(character(',')), character(']'));
-	}	
-
-	public default <B> Parser<List<A>> sepby(Parser<B> sep) {
-		return this.sepby1(sep).plus(result(List.of()));
+	public static <A> Parser<A> lazy(Supplier<Parser<A>> supplier) {
+		return Lazy.val(supplier, Parser.class);
 	}
 	
+	public default Parser<A> chainl1(Parser<Function<A, Function<A,A>>> op) {
+		
+		return
+			this.bind(initial ->
+				many(op.bind(f -> 
+						this.bind(y -> 
+							result(Tuple.of(f, y))))).bind(fys -> {
+								final io.vavr.collection.List<Tuple2<Function<A, Function<A, A>>, A>> list 
+									= io.vavr.collection.List.ofAll(fys);
+								return result(list.foldLeft(initial, (acc, fy) -> fy._1.apply(acc).apply(fy._2)));
+							})
+			);
+	}
+
 	public List<Tuple2<A, String>> parse(String input);
 }
