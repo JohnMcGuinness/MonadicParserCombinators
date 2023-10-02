@@ -1,9 +1,11 @@
 package com.github.johnmcguinness.fp.monparse;
 
+import io.vavr.Function1;
 import io.vavr.Lazy;
 import io.vavr.Tuple;
 import io.vavr.Tuple2;
 import io.vavr.collection.CharSeq;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
@@ -11,19 +13,24 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-@FunctionalInterface
-public interface Parser<A> { 
+public class Parser<A> {
+
+	private final Function1<String,List<Tuple2<A, String>>> fn;
+
+	public Parser(final Function1<String,List<Tuple2<A, String>>> fn) {
+		this.fn = fn;
+	}
 
 	public static <A> Parser<A> result(A a) {
-		return input -> List.of(Tuple.of(a, input));
+		return new Parser<>(input -> List.of(Tuple.of(a, input)));
 	}
 
 	public static <A> Parser<A> zero() {
-		return input -> List.of();
+		return new Parser<>(input -> List.of());
 	}
 
 	public static Parser<Character> item() {
-		return input -> {
+		return new Parser<>(input -> {
 			
 			final CharSeq chars = 
 				input == null
@@ -33,27 +40,27 @@ public interface Parser<A> {
 			return chars.isEmpty()
 					? List.of()
 					: List.of(Tuple.of(chars.head(), chars.tail().mkString()));
-		};
+		});
 	}
 	
-	public default <B> Parser<B> bind(Function<A, Parser<B>> f) {
+	public final <B> Parser<B> bind(Function<A, Parser<B>> f) {
 		
-		return input -> 
+		return new Parser<>(input ->
 			parse(input)
 				.stream()
 				.flatMap(result -> f.apply(result._1).parse(result._2).stream())
-				.collect(Collectors.toList());
+				.collect(Collectors.toList()));
 	}
 	
-	public default <B> Parser<Tuple2<A, B>> seq(Parser<B> p) {
+	public final <B> Parser<Tuple2<A, B>> seq(Parser<B> p) {
 		return
 			this.bind(a -> 
 				p.bind(b ->
 					result(Tuple.of(a, b))));
 	}
 	
-	public default Parser<A> plus(Parser<A> p) {
-		return input ->  {
+	public final Parser<A> plus(Parser<A> p) {
+		return new Parser<>(input ->  {
 			
 				final List<Tuple2<A, String>> first 
 					= parse(input);
@@ -61,7 +68,7 @@ public interface Parser<A> {
 				return !first.isEmpty()
 					? first
 					: p.parse(input);
-		};
+		});
 	}
 	
 	public static Parser<Character> sat(Predicate<Character> p) {
@@ -98,7 +105,7 @@ public interface Parser<A> {
 
 	public static <A> Parser<List<A>> many(Parser<A> p) {
 		
-		final Parser<List<A>> many = 
+		final Parser<List<A>> many =
 			p.bind(x -> 
 				many(p).bind(xs -> {
 					return result(io.vavr.collection.List.ofAll(xs).insert(0, x).toJavaList());
@@ -129,7 +136,7 @@ public interface Parser<A> {
 		final Function<Integer, Integer> negate 
 			= number -> -1 * number;
 		
-		final Parser<Function<Integer, Integer>> op 
+		final Parser<Function<Integer, Integer>> op
 			= character('-')
 				.bind(ingored -> result(negate))
 				.plus(result(Function.identity()));
@@ -140,7 +147,7 @@ public interface Parser<A> {
 					result(f.apply(n))));
 	}
 
-	public default <B> Parser<List<A>> sepby1(Parser<B> sep) {
+	public <B> Parser<List<A>> sepBy1(Parser<B> sep) {
 
 		return this.bind(x ->
 					many(sep.bind(separator ->
@@ -148,8 +155,8 @@ public interface Parser<A> {
 							result(io.vavr.collection.List.of(x).appendAll(xs).toJavaList())));
 	}
 
-	public default <B> Parser<List<A>> sepby(Parser<B> sep) {
-		return this.sepby1(sep).plus(result(List.of()));
+	public <B> Parser<List<A>> sepBy(Parser<B> sep) {
+		return this.sepBy1(sep).plus(result(List.of()));
 	}
 
 	public static <A, B, C> Parser<B> brackets(Parser<A> open, Parser<B> p, Parser<C> close) {
@@ -167,7 +174,7 @@ public interface Parser<A> {
 		return Lazy.val(supplier, Parser.class);
 	}
 	
-	public default Parser<A> chainl1(Parser<Function<A, Function<A,A>>> op) {
+	public Parser<A> chainl1(Parser<Function<A, Function<A,A>>> op) {
 		
 		return
 			this.bind(initial ->
@@ -181,5 +188,7 @@ public interface Parser<A> {
 			);
 	}
 
-	public List<Tuple2<A, String>> parse(String input);
+	public List<Tuple2<A, String>> parse(String input) {
+		return this.fn.apply(input);
+	}
 }
